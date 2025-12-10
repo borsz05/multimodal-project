@@ -1,103 +1,92 @@
+"""
+Egyszerű kontrasztív tanítás ugyanazzal az image-caption párral,
+de a futás végén csak a kép-encoder súlyát mentjük ki.
+Hasznos, ha egy tiszta képes klasszifikátort akarsz finomhangolni később.
+"""
+
 import torch
-import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset
+from torch.utils.data import random_split
 from tqdm import tqdm
 
-from src.config import paths
-from src.datasets import Flickr30kDataset, create_dataloader
-from src.models import create_image_only_model
+from src.config.config import paths
+from src.data.datasets import Flickr30kDataset, create_dataloader, load_flickr30k_annotations
+from src.preprocessing.image_preprocessing import get_image_transform
+from src.preprocessing.text_preprocessing import build_vocab, get_text_transform, VocabTokenizer
+from src.models import create_contrastive_model, contrastive_loss
 
 
-class Flickr30kImageOnlyDebug(Dataset):
-    """
-    Wrapper: Flickr30kDataset -> (image, label)
-    Itt a label egy DUMMY, hash alapú osztály:
-    label = hash(image_name) % num_classes
-
-    Ez csak technikai teszt, hogy a CNN tréning pipeline működik.
-    Valódi projektben ezt kicserélitek egy értelmes címkés feladatra.
-    """
-
-    def __init__(self, base_dataset: Flickr30kDataset, num_classes: int = 10, max_samples: int | None = 5000):
-        self.base_dataset = base_dataset
-        self.num_classes = num_classes
-
-        # opcionálisan limitáljuk a minták számát, hogy ne legyen nagyon lassú CPU-n
-        if max_samples is not None:
-            self.indices = list(range(min(max_samples, len(base_dataset))))
-        else:
-            self.indices = list(range(len(base_dataset)))
-
-    def __len__(self):
-        return len(self.indices)
-
-    def __getitem__(self, idx):
-        base_idx = self.indices[idx]
-        image, caption = self.base_dataset[base_idx]
-
-        # image_name-ből stabil dummy labelt generálunk
-        image_name, _ = self.base_dataset.samples[base_idx]
-        label = hash(image_name) % self.num_classes
-
-        return image, label
+def build_tokenizer_from_annotations(min_freq: int = 2, max_vocab_size: int | None = 20000):
+    ann_path = paths.flickr30k_annotations_dir / "annotations.csv"
+    samples = load_flickr30k_annotations(ann_path)
+    captions = [cap for _, cap in samples]
+    vocab = build_vocab(captions, min_freq=min_freq, max_size=max_vocab_size)
+    tokenizer = VocabTokenizer(vocab)
+    return tokenizer, vocab
 
 
-def train_one_epoch(model, dataloader, criterion, optimizer, device):
+def train_one_epoch(model, dataloader, optimizer, device):
     model.train()
     total_loss = 0.0
-
-    for images, labels in tqdm(dataloader, desc="Training (image-only)"):
+    for images, token_ids, attn_mask in tqdm(dataloader, desc="Training (contrastive)"):
         images = images.to(device)
-        labels = labels.to(device)
+        token_ids = token_ids.to(device)
+        attn_mask = attn_mask.to(device)
 
         optimizer.zero_grad()
-        logits = model(images)
-        loss = criterion(logits, labels)
+        img_emb, txt_emb, logit_scale = model(images, token_ids, attn_mask)
+        loss = contrastive_loss(img_emb, txt_emb, logit_scale)
         loss.backward()
         optimizer.step()
 
         total_loss += loss.item()
-
     return total_loss / len(dataloader)
 
 
 def main():
-    print("Project root:", paths.project_root)
-    print("Flickr30k dir:", paths.flickr30k_dir)
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
 
-    # === Alap Flickr30k dataset (image + caption string) ===
-    base_dataset = Flickr30kDataset()
+    tokenizer, vocab = build_tokenizer_from_annotations(min_freq=2, max_vocab_size=20000)
+    text_transform = get_text_transform(tokenizer, max_len=32)
+    image_transform = get_image_transform()
 
-    # === Csak képes debug dataset (image + dummy label) ===
-    num_classes = 10
-    debug_dataset = Flickr30kImageOnlyDebug(base_dataset, num_classes=num_classes, max_samples=5000)
+    full_dataset = Flickr30kDataset(
+        image_transform=image_transform,
+        text_transform=text_transform,
+        max_samples=None,
+    )
+    val_size = max(1, int(0.1 * len(full_dataset)))
+    train_size = len(full_dataset) - val_size
+    train_ds, _ = random_split(full_dataset, [train_size, val_size])
+    train_loader = create_dataloader(train_ds, batch_size=32, shuffle=True)
 
-    dataloader = create_dataloader(debug_dataset, batch_size=32)
+    model = create_contrastive_model(
+        vocab_size=len(vocab),
+        text_embed_dim=256,
+        text_proj_dim=256,
+        image_proj_dim=256,
+        pretrained_backbone=True,
+        padding_idx=0,
+    ).to(device)
 
-    # === Modell ===
-    model = create_image_only_model(num_classes=num_classes)
-    model.to(device)
+    optimizer = optim.AdamW(model.parameters(), lr=2e-4, weight_decay=1e-4)
 
-    # === Loss + optimizer ===
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
-
-    # === Train loop ===
     num_epochs = 2
     for epoch in range(num_epochs):
-        loss = train_one_epoch(model, dataloader, criterion, optimizer, device)
-        print(f"[Image-only] Epoch {epoch + 1}/{num_epochs}, Loss: {loss:.4f}")
+        loss = train_one_epoch(model, train_loader, optimizer, device)
+        print(f"Epoch {epoch + 1}/{num_epochs}, loss: {loss:.4f}")
 
-    # === Modell mentése ===
     save_dir = paths.models_dir
     save_dir.mkdir(parents=True, exist_ok=True)
-    save_path = save_dir / "image_only_cnn_debug.pth"
-    torch.save(model.state_dict(), save_path)
-    print(f"[Image-only] Model saved to: {save_path}")
+    torch.save(
+        {
+            "image_encoder_state": model.image_encoder.state_dict(),
+            "image_head_state": model.image_head.state_dict(),
+        },
+        save_dir / "image_encoder_from_clip.pth",
+    )
+    print(f"Saved image encoder weights to {save_dir / 'image_encoder_from_clip.pth'}")
 
 
 if __name__ == "__main__":

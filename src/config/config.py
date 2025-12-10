@@ -3,8 +3,8 @@ from pathlib import Path
 
 @dataclass
 class Paths:
-    # a projekt gyökere: src/.. 
-    project_root: Path = Path(__file__).resolve().parents[1]
+    # a projekt gyökere: src/..
+    project_root: Path = Path(__file__).resolve().parents[2]
 
     @property
     def data_dir(self) -> Path:

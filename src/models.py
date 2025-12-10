@@ -11,14 +11,12 @@ class ImageEncoder(nn.Module):
 
     def __init__(self, backbone_name: str = "efficientnet_b0", pretrained: bool = True):
         super().__init__()
-        # num_classes=0 => timm csak feature-t ad vissza
         self.backbone = timm.create_model(
             backbone_name,
             pretrained=pretrained,
             num_classes=0,
             global_pool="avg",
         )
-        # kimeneti dimenzió (pl. 1280 efficientnet_b0-nál)
         self.out_dim = self.backbone.num_features
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -27,95 +25,78 @@ class ImageEncoder(nn.Module):
         return: [B, out_dim]
         """
         return self.backbone(x)
-    
-
-class ImageOnlyClassifier(nn.Module):
-    """
-    Csak képes osztályozó:
-    EfficientNet feature extractor + MLP classifier.
-    """
-
-    def __init__(
-        self,
-        num_classes: int,
-        backbone_name: str = "efficientnet_b0",
-        pretrained: bool = True,
-        hidden_dim: int = 512,
-    ):
-        super().__init__()
-        self.image_encoder = ImageEncoder(
-            backbone_name=backbone_name,
-            pretrained=pretrained,
-        )
-
-        self.classifier = nn.Sequential(
-            nn.Linear(self.image_encoder.out_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(hidden_dim, num_classes),
-        )
-
-    def forward(self, images: torch.Tensor) -> torch.Tensor:
-        """
-        images: [B, 3, H, W]
-        return: [B, num_classes]
-        """
-        img_feat = self.image_encoder(images)
-        logits = self.classifier(img_feat)
-        return logits
-
-
-def create_image_only_model(
-    num_classes: int,
-    backbone_name: str = "efficientnet_b0",
-    pretrained: bool = True,
-    hidden_dim: int = 512,
-) -> ImageOnlyClassifier:
-    return ImageOnlyClassifier(
-        num_classes=num_classes,
-        backbone_name=backbone_name,
-        pretrained=pretrained,
-        hidden_dim=hidden_dim,
-    )
 
 
 class TextEncoder(nn.Module):
     """
-    Egyszerű MLP a szöveg embeddingre.
-    Most feltételezzük, hogy egy fix-dimenziós embeddinget kapunk (pl. 300 dim).
-    Később ide jöhet LSTM / BERT is.
-    """
-
-    def __init__(self, text_dim: int = 300, hidden_dim: int = 256):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(text_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-        )
-        self.out_dim = hidden_dim
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        x: [B, text_dim]
-        return: [B, hidden_dim]
-        """
-        return self.net(x)
-
-
-class MultimodalClassifier(nn.Module):
-    """
-    Kép + szöveg → közös embedding → osztályozás.
+    Token ID -> embedding -> masked mean pool -> projection.
+    padding_idx biztosítja, hogy a PAD token ne befolyásolja az átlagot.
     """
 
     def __init__(
         self,
-        num_classes: int,
+        vocab_size: int,
+        embed_dim: int = 256,
+        proj_dim: int = 256,
+        padding_idx: int = 0,
+    ):
+        super().__init__()
+        self.embedding = nn.Embedding(
+            vocab_size,
+            embed_dim,
+            padding_idx=padding_idx,
+        )
+        self.projection = nn.Sequential(
+            nn.Linear(embed_dim, proj_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+        )
+        self.padding_idx = padding_idx
+        self.out_dim = proj_dim
+
+    def forward(self, token_ids: torch.Tensor, attn_mask: torch.Tensor) -> torch.Tensor:
+        """
+        token_ids: [B, L] int64
+        attn_mask: [B, L] float, 1 for real tokens, 0 for pad
+        return: [B, out_dim]
+        """
+        embeds = self.embedding(token_ids)  # [B, L, E]
+        mask = attn_mask.unsqueeze(-1)  # [B, L, 1]
+        summed = (embeds * mask).sum(dim=1)
+        denom = mask.sum(dim=1).clamp(min=1e-6)
+        pooled = summed / denom
+        return self.projection(pooled)
+
+
+class ProjectionHead(nn.Module):
+    """Linear projection + L2 norm a közös embedding térhez."""
+
+    def __init__(self, in_dim: int, out_dim: int):
+        super().__init__()
+        self.proj = nn.Linear(in_dim, out_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.proj(x)
+        return nn.functional.normalize(x, dim=-1)
+
+
+class CLIPLikeModel(nn.Module):
+    """
+    Multimodális kontrasztív modell (CLIP-szerű):
+    - Kép encoder (timm backbone)
+    - Szöveg encoder (embedding + masked mean pool)
+    - Közös embedding és skálázott dot-product loss
+    """
+
+    def __init__(
+        self,
         image_backbone: str = "efficientnet_b0",
-        text_dim: int = 300,
-        text_hidden_dim: int = 256,
-        fusion_hidden_dim: int = 512,
+        vocab_size: int = 10000,
+        text_embed_dim: int = 256,
+        text_proj_dim: int = 256,
+        image_proj_dim: int = 256,
         pretrained_backbone: bool = True,
+        padding_idx: int = 0,
     ):
         super().__init__()
         self.image_encoder = ImageEncoder(
@@ -123,49 +104,62 @@ class MultimodalClassifier(nn.Module):
             pretrained=pretrained_backbone,
         )
         self.text_encoder = TextEncoder(
-            text_dim=text_dim,
-            hidden_dim=text_hidden_dim,
+            vocab_size=vocab_size,
+            embed_dim=text_embed_dim,
+            proj_dim=text_proj_dim,
+            padding_idx=padding_idx,
         )
+        self.image_head = ProjectionHead(self.image_encoder.out_dim, image_proj_dim)
+        self.text_head = ProjectionHead(self.text_encoder.out_dim, image_proj_dim)
 
-        fusion_input_dim = self.image_encoder.out_dim + self.text_encoder.out_dim
+        self.logit_scale = nn.Parameter(torch.ones([]) * 1.0)
 
-        self.classifier = nn.Sequential(
-            nn.Linear(fusion_input_dim, fusion_hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(fusion_hidden_dim, num_classes),
-        )
-
-    def forward(self, images: torch.Tensor, text_embeddings: torch.Tensor) -> torch.Tensor:
+    def forward(self, images: torch.Tensor, token_ids: torch.Tensor, attn_mask: torch.Tensor):
         """
-        images: [B, 3, H, W]
-        text_embeddings: [B, text_dim]
-        return: [B, num_classes] (logits)
+        Returns L2-normalized embeddings and logit_scale.
         """
         img_feat = self.image_encoder(images)
-        txt_feat = self.text_encoder(text_embeddings)
-        fused = torch.cat([img_feat, txt_feat], dim=1)
-        logits = self.classifier(fused)
-        return logits
+        txt_feat = self.text_encoder(token_ids, attn_mask)
+        img_emb = self.image_head(img_feat)
+        txt_emb = self.text_head(txt_feat)
+        logit_scale = self.logit_scale.exp()
+        return img_emb, txt_emb, logit_scale
 
 
-def create_multimodal_model(
-    num_classes: int,
+def contrastive_loss(image_emb: torch.Tensor, text_emb: torch.Tensor, logit_scale: torch.Tensor):
+    """
+    InfoNCE-szerű veszteség: egy batch-en belül a helyes (i,i) párokat kell megtalálni.
+    """
+    logits_per_image = logit_scale * image_emb @ text_emb.t()
+    logits_per_text = logits_per_image.t()
+    targets = torch.arange(image_emb.size(0), device=image_emb.device)
+    loss_i = nn.functional.cross_entropy(logits_per_image, targets)
+    loss_t = nn.functional.cross_entropy(logits_per_text, targets)
+    return (loss_i + loss_t) / 2
+
+
+def compute_topk_accuracy(logits: torch.Tensor, k: int = 5):
+    targets = torch.arange(logits.size(0), device=logits.device)
+    _, preds = logits.topk(k, dim=1)
+    correct = (preds == targets.unsqueeze(1)).any(dim=1).float()
+    return correct.mean().item()
+
+
+def create_contrastive_model(
     image_backbone: str = "efficientnet_b0",
-    text_dim: int = 300,
-    text_hidden_dim: int = 256,
-    fusion_hidden_dim: int = 512,
+    vocab_size: int = 10000,
+    text_embed_dim: int = 256,
+    text_proj_dim: int = 256,
+    image_proj_dim: int = 256,
     pretrained_backbone: bool = True,
-) -> MultimodalClassifier:
-    """
-    Helper függvény a modell példányosítására.
-    """
-    model = MultimodalClassifier(
-        num_classes=num_classes,
+    padding_idx: int = 0,
+) -> CLIPLikeModel:
+    return CLIPLikeModel(
         image_backbone=image_backbone,
-        text_dim=text_dim,
-        text_hidden_dim=text_hidden_dim,
-        fusion_hidden_dim=fusion_hidden_dim,
+        vocab_size=vocab_size,
+        text_embed_dim=text_embed_dim,
+        text_proj_dim=text_proj_dim,
+        image_proj_dim=image_proj_dim,
         pretrained_backbone=pretrained_backbone,
+        padding_idx=padding_idx,
     )
-    return model
