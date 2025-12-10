@@ -37,8 +37,8 @@ def load_flickr30k_annotations(csv_path: Path):
         )
 
     # whitespace-ek eltávolítása
-    df["image_name"] = df["image_name"].astype(str).str.strip()
-    df["comment"] = df["comment"].astype(str).str.strip(" ,")
+    df["image_name"] = df["image_name"].astype(str).str.strip().str.strip('"')
+    df["comment"] = df["comment"].astype(str).str.strip(" ,\"")
 
     # üres caption vagy image_name sorok kiszűrése
     df = df.dropna(subset=["image_name", "comment"])
@@ -99,10 +99,19 @@ class Flickr30kDataset(Dataset):
         self.images_dir = paths.flickr30k_images_dir
         self.ann_path = paths.flickr30k_annotations_dir / "annotations.csv"
 
-        # (image_name, comment) lista
-        self.samples = load_flickr30k_annotations(self.ann_path)
+        raw_samples = load_flickr30k_annotations(self.ann_path)
 
-        # ha nincs megadva külső transform, használjuk az alapot
+        self.samples = []
+        missing_count = 0
+        for image_name, caption in raw_samples:
+            img_path = self.images_dir / image_name
+            if img_path.exists():
+                self.samples.append((image_name, caption))
+            else:
+                missing_count += 1
+
+        print(f"Flickr30kDataset: {len(self.samples)} használható minta, {missing_count} hiányzó kép kihagyva.")
+
         self.transform = transform if transform is not None else get_image_transform()
 
     def __len__(self):

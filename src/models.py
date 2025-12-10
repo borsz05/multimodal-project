@@ -27,6 +27,56 @@ class ImageEncoder(nn.Module):
         return: [B, out_dim]
         """
         return self.backbone(x)
+    
+
+class ImageOnlyClassifier(nn.Module):
+    """
+    Csak képes osztályozó:
+    EfficientNet feature extractor + MLP classifier.
+    """
+
+    def __init__(
+        self,
+        num_classes: int,
+        backbone_name: str = "efficientnet_b0",
+        pretrained: bool = True,
+        hidden_dim: int = 512,
+    ):
+        super().__init__()
+        self.image_encoder = ImageEncoder(
+            backbone_name=backbone_name,
+            pretrained=pretrained,
+        )
+
+        self.classifier = nn.Sequential(
+            nn.Linear(self.image_encoder.out_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(hidden_dim, num_classes),
+        )
+
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
+        """
+        images: [B, 3, H, W]
+        return: [B, num_classes]
+        """
+        img_feat = self.image_encoder(images)
+        logits = self.classifier(img_feat)
+        return logits
+
+
+def create_image_only_model(
+    num_classes: int,
+    backbone_name: str = "efficientnet_b0",
+    pretrained: bool = True,
+    hidden_dim: int = 512,
+) -> ImageOnlyClassifier:
+    return ImageOnlyClassifier(
+        num_classes=num_classes,
+        backbone_name=backbone_name,
+        pretrained=pretrained,
+        hidden_dim=hidden_dim,
+    )
 
 
 class TextEncoder(nn.Module):
