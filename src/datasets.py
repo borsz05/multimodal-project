@@ -6,8 +6,8 @@ import random
 from PIL import Image
 import numpy as np
 import pandas as pd
-
 from src.config import paths
+from src.image_preprocessing import get_image_transform
 
 
 def load_flickr30k_annotations(csv_path: Path):
@@ -37,8 +37,8 @@ def load_flickr30k_annotations(csv_path: Path):
         )
 
     # whitespace-ek eltávolítása
-    df["image_name"] = df["image_name"].astype(str).str.strip()
-    df["comment"] = df["comment"].astype(str).str.strip()
+    df["image_name"] = df["image_name"].astype(str).str.strip().str.strip('"')
+    df["comment"] = df["comment"].astype(str).str.strip(" ,\"")
 
     # üres caption vagy image_name sorok kiszűrése
     df = df.dropna(subset=["image_name", "comment"])
@@ -89,42 +89,47 @@ class DummyDataset(Dataset):
 
 class Flickr30kDataset(Dataset):
     """
-    EGYELŐRE ÜRES, csak a struktúra.
-    Később:
-    - beolvassuk a caption fájlokat (annotations)
-    - beolvassuk a képeket (images)
-    - tokenizálás
-    - EfficientNet pre-processing
+    Valódi Flickr30k dataset:
+    - annotations.csv alapján (image_name, caption) párok
+    - képek betöltése PIL-lel
+    - image_preprocessing transform alkalmazása
     """
 
-    def __init__(self):
+    def __init__(self, transform=None):
         self.images_dir = paths.flickr30k_images_dir
-        self.ann_dir = paths.flickr30k_annotations_dir
+        self.ann_path = paths.flickr30k_annotations_dir / "annotations.csv"
 
-        # később feltöltjük egy listával: [(image_path, text), ...]
+        raw_samples = load_flickr30k_annotations(self.ann_path)
+
         self.samples = []
+        missing_count = 0
+        for image_name, caption in raw_samples:
+            img_path = self.images_dir / image_name
+            if img_path.exists():
+                self.samples.append((image_name, caption))
+            else:
+                missing_count += 1
 
-        # PLACEHOLDER: 10 darab dummy útvonal
-        for i in range(10):
-            self.samples.append(("sample_image.jpg", "a sample caption"))
+        print(f"Flickr30kDataset: {len(self.samples)} használható minta, {missing_count} hiányzó kép kihagyva.")
+
+        self.transform = transform if transform is not None else get_image_transform()
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        image_path, caption = self.samples[idx]
+        image_name, caption = self.samples[idx]
 
-        # Amíg nincs valódi kép → random image
-        image = torch.rand(3, 224, 224)
+        image_path = self.images_dir / image_name
 
-        # Amíg nincs tokenizer → random embedding
-        text_embedding = torch.rand(300)
+        # Kép megnyitása
+        with Image.open(image_path) as img:
+            img = img.convert("RGB")
+            image = self.transform(img)
 
-        # PLACEHOLDER címke (pl. 0)
-        label = 0
-
-        return image, text_embedding, label
-
+        # Egyelőre caption-t sima stringként adjuk vissza
+        # (társad text_preprocessing modulja majd tokenizálja)
+        return image, caption
 
 # ============================================================
 # 3) DATALOADER HELPER FÜGGVÉNY
