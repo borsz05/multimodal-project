@@ -1,7 +1,6 @@
 """
 Egyszerű kontrasztív tanítás ugyanazzal az image-caption párral,
 de a futás végén csak a kép-encoder súlyát mentjük ki.
-Hasznos, ha egy tiszta képes klasszifikátort akarsz finomhangolni később.
 """
 
 import torch
@@ -15,7 +14,7 @@ from src.preprocessing.image_preprocessing import get_image_transform
 from src.preprocessing.text_preprocessing import build_vocab, get_text_transform, VocabTokenizer
 from src.models import create_contrastive_model, contrastive_loss
 
-
+# "Builds tokenizer and vocabulary from annotation captions."
 def build_tokenizer_from_annotations(min_freq: int = 2, max_vocab_size: int | None = 20000):
     ann_path = paths.flickr30k_annotations_dir / "annotations.csv"
     samples = load_flickr30k_annotations(ann_path)
@@ -24,7 +23,7 @@ def build_tokenizer_from_annotations(min_freq: int = 2, max_vocab_size: int | No
     tokenizer = VocabTokenizer(vocab)
     return tokenizer, vocab
 
-
+# "Runs one epoch of contrastive training."
 def train_one_epoch(model, dataloader, optimizer, device):
     model.train()
     total_loss = 0.0
@@ -42,7 +41,7 @@ def train_one_epoch(model, dataloader, optimizer, device):
         total_loss += loss.item()
     return total_loss / len(dataloader)
 
-
+# "Main training routine: trains model and saves only image encoder."
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
@@ -56,6 +55,7 @@ def main():
         text_transform=text_transform,
         max_samples=None,
     )
+
     val_size = max(1, int(0.1 * len(full_dataset)))
     train_size = len(full_dataset) - val_size
     train_ds, _ = random_split(full_dataset, [train_size, val_size])
@@ -79,6 +79,8 @@ def main():
 
     save_dir = paths.models_dir
     save_dir.mkdir(parents=True, exist_ok=True)
+
+    # "Saves only the image encoder weights."
     torch.save(
         {
             "image_encoder_state": model.image_encoder.state_dict(),

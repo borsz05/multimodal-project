@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 @dataclass
-class Paths:
+class Paths: #Keeps all important project folders in one place.
     # a projekt gyökere: src/..
     project_root: Path = Path(__file__).resolve().parents[2]
 
