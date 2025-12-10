@@ -1,0 +1,34 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtuális környezetek
+venv/
+.venv/
+env/
+.env/
+
+# IDE / editor
+.vscode/
+.idea/
+*.code-workspace
+
+# Notebook cache
+.ipynb_checkpoints/
+
+# OS szemét
+.DS_Store
+Thumbs.db
+
+# Adatok és eredmények (nem kell Gitbe)
+data/
+results/
+
+# Modellek, checkpointok
+*.pt
+*.pth
+*.ckpt
+
+# Egyéb cache
+.cache/
