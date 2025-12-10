@@ -3,7 +3,7 @@ import torch.nn as nn
 import timm
 
 
-class ImageEncoder(nn.Module):
+class ImageEncoder(nn.Module): # Extracts a feature vector from the image using a CNN backbone
     """
     EfficientNet (vagy más timm backbone) feature extractor.
     Nem ad közvetlen class logitot, csak egy feature vektort.
@@ -27,7 +27,7 @@ class ImageEncoder(nn.Module):
         return self.backbone(x)
 
 
-class TextEncoder(nn.Module):
+class TextEncoder(nn.Module): #Embeds tokens, applies masked mean pooling, projects to 256 dims
     """
     Token ID -> embedding -> masked mean pool -> projection.
     padding_idx biztosítja, hogy a PAD token ne befolyásolja az átlagot.
@@ -68,7 +68,7 @@ class TextEncoder(nn.Module):
         return self.projection(pooled)
 
 
-class ProjectionHead(nn.Module):
+class ProjectionHead(nn.Module): #Maps image/text features into the same normalized embedding space
     """Linear projection + L2 norm a közös embedding térhez."""
 
     def __init__(self, in_dim: int, out_dim: int):

@@ -13,8 +13,8 @@ from src.models import (
     compute_topk_accuracy,
 )
 
-
-def build_tokenizer_from_annotations(min_freq: int = 2, max_vocab_size: int | None = 20000):
+#Loads captions, builds vocabulary, and returns the tokenizer object
+def build_tokenizer_from_annotations(min_freq: int = 2, max_vocab_size: int | None = 20000): 
     ann_path = paths.flickr30k_annotations_dir / "annotations.csv"
     samples = load_flickr30k_annotations(ann_path)
     captions = [cap for _, cap in samples]
@@ -23,6 +23,7 @@ def build_tokenizer_from_annotations(min_freq: int = 2, max_vocab_size: int | No
     return tokenizer, vocab
 
 
+#Runs model in eval mode, computes average loss and top-k accuracy over the dataset
 def evaluate(model, dataloader, device):
     model.eval()
     total_loss = 0.0
@@ -55,6 +56,7 @@ def evaluate(model, dataloader, device):
     }
 
 
+#Runs one training epoch: forward pass, compute loss, backprop, optimizer step
 def train_one_epoch(model, dataloader, optimizer, device):
     model.train()
     total_loss = 0.0
@@ -75,33 +77,34 @@ def train_one_epoch(model, dataloader, optimizer, device):
     return total_loss / len(dataloader)
 
 
+#Sets up transforms, datasets, model, optimizer, and runs the full training + validation loop
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
 
-    # --- Tokenizer + text transform ---
+    # --- Tokenizer + text transform --- Builds vocabulary and prepares text preprocessing (tokenization + padding)
     tokenizer, vocab = build_tokenizer_from_annotations(min_freq=2, max_vocab_size=20000)
     text_transform = get_text_transform(tokenizer, max_len=32)
 
-    # --- Image transform ---
+    # --- Image transform ---Creates image preprocessing pipeline for the CNN backbone
     image_transform = get_image_transform()
 
-    # --- Dataset ---
+    # --- Dataset ---Loads Flickr30k images + captions with transforms
     full_dataset = Flickr30kDataset(
         image_transform=image_transform,
         text_transform=text_transform,
         max_samples=None,  # use all available
     )
 
-    # Train/val split (90/10)
+    # Train/val split (90/10) Splits dataset into 90% train and 10% validation
     val_size = max(1, int(0.1 * len(full_dataset)))
     train_size = len(full_dataset) - val_size
     train_ds, val_ds = random_split(full_dataset, [train_size, val_size])
 
-    train_loader = create_dataloader(train_ds, batch_size=32, shuffle=True)
+    train_loader = create_dataloader(train_ds, batch_size=32, shuffle=True) #Creates mini-batches for training and validation
     val_loader = create_dataloader(val_ds, batch_size=32, shuffle=False)
 
-    # --- Model ---
+    # --- Model ---Builds CLIP-style dual encoder (image + text) with projection heads
     model = create_contrastive_model(
         vocab_size=len(vocab),
         text_embed_dim=256,
@@ -112,10 +115,10 @@ def main():
     )
     model.to(device)
 
-    # --- Optimizer ---
+    # --- Optimizer ---AdamW optimizer for training all model parameters
     optimizer = optim.AdamW(model.parameters(), lr=2e-4, weight_decay=1e-4)
 
-    # --- Train loop ---
+    # --- Train loop ---Runs epochs; after each: train → validate → save best model
     num_epochs = 3
     best_val_loss = float("inf")
     save_path = paths.models_dir

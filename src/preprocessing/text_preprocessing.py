@@ -8,11 +8,11 @@ PAD_TOKEN = "<pad>"
 UNK_TOKEN = "<unk>"
 
 
-def basic_tokenize(text: str) -> List[str]:
+def basic_tokenize(text: str) -> List[str]: #Splits text into lowercase word tokens
     return re.findall(r"\w+", text.lower())
 
 
-def build_vocab(
+def build_vocab( #Counts word frequencies and builds a vocab with PAD/UNK tokens
     captions: Iterable[str],
     min_freq: int = 2,
     max_size: int | None = None,
@@ -33,7 +33,7 @@ def build_vocab(
     return vocab
 
 
-class VocabTokenizer:
+class VocabTokenizer: #Converts text tokens into vocab IDs
     def __init__(self, vocab: Dict[str, int]):
         self.vocab = vocab
         self.unk_id = vocab.get(UNK_TOKEN, 1)
@@ -43,7 +43,7 @@ class VocabTokenizer:
         return [self.vocab.get(tok, self.unk_id) for tok in tokens]
 
 
-def get_text_transform(tokenizer: VocabTokenizer, max_len: int = 30):
+def get_text_transform(tokenizer: VocabTokenizer, max_len: int = 30): #Turns caption into padded ID list + attention mask
     """
     Returns a function that converts caption -> (token_ids, attention_mask)
     - token_ids: LongTensor [L]
