@@ -4,7 +4,7 @@ from torch.utils.data import random_split
 from tqdm import tqdm
 
 from src.config.config import paths
-from src.data.datasets import Flickr30kDataset, create_dataloader, load_flickr30k_annotations
+from src.dataset.datasets import Flickr30kDataset, create_dataloader, load_flickr30k_annotations
 from src.preprocessing.image_preprocessing import get_image_transform
 from src.preprocessing.text_preprocessing import build_vocab, get_text_transform, VocabTokenizer
 from src.models import (
