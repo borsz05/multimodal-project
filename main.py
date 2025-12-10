@@ -1,7 +1,7 @@
 import torch
 
 from src.config import paths
-from src.datasets import DummyDataset, create_dataloader
+from src.datasets import DummyDataset, create_dataloader, load_flickr30k_annotations
 from src.models import create_multimodal_model
 
 
@@ -9,31 +9,20 @@ def main():
     print("Project root:", paths.project_root)
     print("Flickr30k dir:", paths.flickr30k_dir)
 
-    # Eszköz kiválasztása (ha van CUDA, azt használja)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("Using device:", device)
+    # ---- 1) Annotációs fájl beolvasás teszt ----
+    ann_path = paths.flickr30k_annotations_dir / "annotations.csv"  # ha más a neve, írd át
 
-    # Dummy dataset – 10 minta, 10 osztály
-    dataset = DummyDataset(size=10, num_classes=10)
-    dataloader = create_dataloader(dataset, batch_size=2)
+    print("\nAnnotációs fájl elérési útja:", ann_path)
 
-    # Modell létrehozása
-    model = create_multimodal_model(num_classes=10)
-    model.to(device)
-    model.eval()  # most csak forwardot tesztelünk
+    samples = load_flickr30k_annotations(ann_path)
+    print(f"Összes minta (sor) az annotációkban: {len(samples)}")
 
-    # Egy batch teszt forward
-    print("\nForward pass teszt:")
-    with torch.no_grad():
-        for images, texts, labels in dataloader:
-            images = images.to(device)
-            texts = texts.to(device)
-            logits = model(images, texts)
-            print("images shape:", images.shape)
-            print("texts shape:", texts.shape)
-            print("logits shape:", logits.shape)
-            break
+    print("\nElső 5 minta:")
+    for i, (image_id, caption) in enumerate(samples[:5]):
+        print(f"{i+1}. image_id = {image_id} | caption = {caption}")
 
+    # (A korábbi dummy + model forward teszt most akár maradhat is,
+    # de ha zavar, ideiglenesen kikommentezheted)
 
 if __name__ == "__main__":
     main()
