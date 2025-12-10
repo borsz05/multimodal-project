@@ -3,7 +3,7 @@ from pathlib import Path
 
 @dataclass
 class Paths:
-    # alapértelmezett: a projekt gyökere az a mappa, ahol a .git van
+    # a projekt gyökere: src/.. 
     project_root: Path = Path(__file__).resolve().parents[1]
 
     @property
@@ -17,5 +17,18 @@ class Paths:
     @property
     def models_dir(self) -> Path:
         return self.results_dir / "models"
+
+    # --- Flickr30k-specifikus útvonalak ---
+    @property
+    def flickr30k_dir(self) -> Path:
+        return self.data_dir / "flickr30k"
+
+    @property
+    def flickr30k_images_dir(self) -> Path:
+        return self.flickr30k_dir / "images"
+
+    @property
+    def flickr30k_annotations_dir(self) -> Path:
+        return self.flickr30k_dir / "annotations"
 
 paths = Paths()
