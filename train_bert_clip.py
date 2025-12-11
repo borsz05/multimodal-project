@@ -78,15 +78,15 @@ def main():
     full_dataset = Flickr30kDataset(
         image_transform=image_transform,
         text_transform=text_transform,
-        max_samples=50000,  # fejlesztéshez limit, később lehet None
+        max_samples=100000,
     )
 
     val_size = max(1, int(0.1 * len(full_dataset)))
     train_size = len(full_dataset) - val_size
     train_ds, val_ds = random_split(full_dataset, [train_size, val_size])
 
-    train_loader = create_dataloader(train_ds, batch_size=32, shuffle=True)
-    val_loader = create_dataloader(val_ds, batch_size=32, shuffle=False)
+    train_loader = create_dataloader(train_ds, batch_size=64, shuffle=True)
+    val_loader = create_dataloader(val_ds, batch_size=64, shuffle=False)
 
     # --- Modell: BERT-es CLIP ---
     model = create_contrastive_model(
@@ -101,7 +101,7 @@ def main():
 
     optimizer = optim.AdamW(model.parameters(), lr=2e-5, weight_decay=1e-4)
 
-    num_epochs = 3
+    num_epochs = 5
     best_val_loss = float("inf")
     save_path = paths.models_dir
     save_path.mkdir(parents=True, exist_ok=True)
