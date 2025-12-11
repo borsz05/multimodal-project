@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import timm
+from transformers import BertModel
 
 
 class ImageEncoder(nn.Module): # Extracts a feature vector from the image using a CNN backbone
@@ -68,6 +69,27 @@ class TextEncoder(nn.Module): #Embeds tokens, applies masked mean pooling, proje
         return self.projection(pooled)
 
 
+class BertTextEncoder(nn.Module):
+    """
+    BERT alapú szöveg-encoder.
+    A CLS token rejtett állapotát használjuk szöveg-embeddingként.
+    """
+
+    def __init__(self, model_name: str = "bert-base-uncased"):
+        super().__init__()
+        self.bert = BertModel.from_pretrained(model_name)
+        self.out_dim = self.bert.config.hidden_size  # pl. 768
+
+    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+        """
+        input_ids: [B, L]
+        attention_mask: [B, L]
+        return: [B, out_dim]
+        """
+        out = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        cls = out.last_hidden_state[:, 0, :]  # CLS token
+        return cls
+
 class ProjectionHead(nn.Module): #Maps image/text features into the same normalized embedding space
     """Linear projection + L2 norm a közös embedding térhez."""
 
@@ -91,27 +113,41 @@ class CLIPLikeModel(nn.Module):
     def __init__(
         self,
         image_backbone: str = "efficientnet_b0",
-        vocab_size: int = 10000,
+        vocab_size: int | None = None,
         text_embed_dim: int = 256,
         text_proj_dim: int = 256,
         image_proj_dim: int = 256,
         pretrained_backbone: bool = True,
         padding_idx: int = 0,
+        use_bert: bool = False,
+        bert_model_name: str = "bert-base-uncased",
     ):
         super().__init__()
+
+        # --- Kép-encoder ---
         self.image_encoder = ImageEncoder(
             backbone_name=image_backbone,
             pretrained=pretrained_backbone,
         )
-        self.text_encoder = TextEncoder(
-            vocab_size=vocab_size,
-            embed_dim=text_embed_dim,
-            proj_dim=text_proj_dim,
-            padding_idx=padding_idx,
-        )
+
+        # --- Szöveg-encoder: vagy saját, vagy BERT ---
+        if use_bert:
+            self.text_encoder = BertTextEncoder(model_name=bert_model_name)
+        else:
+            if vocab_size is None:
+                raise ValueError("vocab_size must be provided when not using BERT text encoder.")
+            self.text_encoder = TextEncoder(
+                vocab_size=vocab_size,
+                embed_dim=text_embed_dim,
+                proj_dim=text_proj_dim,
+                padding_idx=padding_idx,
+            )
+
+        # --- Projekciós fejek ---
         self.image_head = ProjectionHead(self.image_encoder.out_dim, image_proj_dim)
         self.text_head = ProjectionHead(self.text_encoder.out_dim, image_proj_dim)
 
+        # --- Logit scale ---
         self.logit_scale = nn.Parameter(torch.ones([]) * 1.0)
 
     def forward(self, images: torch.Tensor, token_ids: torch.Tensor, attn_mask: torch.Tensor):
@@ -147,12 +183,14 @@ def compute_topk_accuracy(logits: torch.Tensor, k: int = 5):
 
 def create_contrastive_model(
     image_backbone: str = "efficientnet_b0",
-    vocab_size: int = 10000,
+    vocab_size: int | None = None,
     text_embed_dim: int = 256,
     text_proj_dim: int = 256,
     image_proj_dim: int = 256,
     pretrained_backbone: bool = True,
     padding_idx: int = 0,
+    use_bert: bool = False,
+    bert_model_name: str = "bert-base-uncased",
 ) -> CLIPLikeModel:
     return CLIPLikeModel(
         image_backbone=image_backbone,
@@ -162,4 +200,6 @@ def create_contrastive_model(
         image_proj_dim=image_proj_dim,
         pretrained_backbone=pretrained_backbone,
         padding_idx=padding_idx,
+        use_bert=use_bert,
+        bert_model_name=bert_model_name,
     )

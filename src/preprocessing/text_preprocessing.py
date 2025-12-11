@@ -1,6 +1,7 @@
 import re
 from collections import Counter
 from typing import Dict, Iterable, List, Tuple
+from transformers import BertTokenizerFast
 
 import torch
 
@@ -59,5 +60,26 @@ def get_text_transform(tokenizer: VocabTokenizer, max_len: int = 30): #Turns cap
             ids += [0] * pad_len
             attn += [0.0] * pad_len
         return torch.tensor(ids, dtype=torch.long), torch.tensor(attn, dtype=torch.float32)
+
+    return transform
+
+def get_bert_text_transform(tokenizer: BertTokenizerFast, max_len: int = 32):
+    """
+    BERT tokenizálás:
+    caption -> (input_ids, attention_mask)
+    - input_ids: LongTensor [L]
+    - attention_mask: FloatTensor [L]
+    """
+    def transform(caption: str) -> Tuple[torch.Tensor, torch.Tensor]:
+        encoded = tokenizer(
+            caption,
+            padding="max_length",
+            truncation=True,
+            max_length=max_len,
+            return_tensors="pt",
+        )
+        input_ids = encoded["input_ids"].squeeze(0)
+        attn_mask = encoded["attention_mask"].squeeze(0).float()
+        return input_ids, attn_mask
 
     return transform
