@@ -4,10 +4,10 @@ import timm
 from transformers import BertModel
 
 
-class ImageEncoder(nn.Module): # Extracts a feature vector from the image using a CNN backbone
+class ImageEncoder(nn.Module):  # Extracts a feature vector from the image using a CNN backbone
     """
-    EfficientNet (vagy más timm backbone) feature extractor.
-    Nem ad közvetlen class logitot, csak egy feature vektort.
+    EfficientNet (or another timm backbone) feature extractor.
+    Does not output class logits directly, only a feature vector.
     """
 
     def __init__(self, backbone_name: str = "efficientnet_b0", pretrained: bool = True):
@@ -28,10 +28,10 @@ class ImageEncoder(nn.Module): # Extracts a feature vector from the image using 
         return self.backbone(x)
 
 
-class TextEncoder(nn.Module): #Embeds tokens, applies masked mean pooling, projects to 256 dims
+class TextEncoder(nn.Module):  # Embeds tokens, applies masked mean pooling, projects to 256 dims
     """
     Token ID -> embedding -> masked mean pool -> projection.
-    padding_idx biztosítja, hogy a PAD token ne befolyásolja az átlagot.
+    padding_idx ensures that the PAD token does not influence the average.
     """
 
     def __init__(
@@ -71,14 +71,14 @@ class TextEncoder(nn.Module): #Embeds tokens, applies masked mean pooling, proje
 
 class BertTextEncoder(nn.Module):
     """
-    BERT alapú szöveg-encoder.
-    A CLS token rejtett állapotát használjuk szöveg-embeddingként.
+    BERT-based text encoder.
+    We use the hidden state of the CLS token as the text embedding.
     """
 
     def __init__(self, model_name: str = "bert-base-uncased"):
         super().__init__()
         self.bert = BertModel.from_pretrained(model_name)
-        self.out_dim = self.bert.config.hidden_size  # pl. 768
+        self.out_dim = self.bert.config.hidden_size  # e.g. 768
 
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         """
@@ -90,8 +90,9 @@ class BertTextEncoder(nn.Module):
         cls = out.last_hidden_state[:, 0, :]  # CLS token
         return cls
 
-class ProjectionHead(nn.Module): #Maps image/text features into the same normalized embedding space
-    """Linear projection + L2 norm a közös embedding térhez."""
+
+class ProjectionHead(nn.Module):  # Maps image/text features into the same normalized embedding space
+    """Linear projection + L2 normalization to a shared embedding space."""
 
     def __init__(self, in_dim: int, out_dim: int):
         super().__init__()
@@ -104,10 +105,10 @@ class ProjectionHead(nn.Module): #Maps image/text features into the same normali
 
 class CLIPLikeModel(nn.Module):
     """
-    Multimodális kontrasztív modell (CLIP-szerű):
-    - Kép encoder (timm backbone)
-    - Szöveg encoder (embedding + masked mean pool)
-    - Közös embedding és skálázott dot-product loss
+    Multimodal contrastive model (CLIP-like):
+    - Image encoder (timm backbone)
+    - Text encoder (embedding + masked mean pool)
+    - Shared embedding space and scaled dot-product loss
     """
 
     def __init__(
@@ -124,13 +125,13 @@ class CLIPLikeModel(nn.Module):
     ):
         super().__init__()
 
-        # --- Kép-encoder ---
+        # --- Image encoder ---
         self.image_encoder = ImageEncoder(
             backbone_name=image_backbone,
             pretrained=pretrained_backbone,
         )
 
-        # --- Szöveg-encoder: vagy saját, vagy BERT ---
+        # --- Text encoder: either custom or BERT ---
         if use_bert:
             self.text_encoder = BertTextEncoder(model_name=bert_model_name)
         else:
@@ -143,7 +144,7 @@ class CLIPLikeModel(nn.Module):
                 padding_idx=padding_idx,
             )
 
-        # --- Projekciós fejek ---
+        # --- Projection heads ---
         self.image_head = ProjectionHead(self.image_encoder.out_dim, image_proj_dim)
         self.text_head = ProjectionHead(self.text_encoder.out_dim, image_proj_dim)
 
@@ -164,7 +165,7 @@ class CLIPLikeModel(nn.Module):
 
 def contrastive_loss(image_emb: torch.Tensor, text_emb: torch.Tensor, logit_scale: torch.Tensor):
     """
-    InfoNCE-szerű veszteség: egy batch-en belül a helyes (i,i) párokat kell megtalálni.
+    InfoNCE-like loss: within a batch, the correct (i, i) pairs must be identified.
     """
     logits_per_image = logit_scale * image_emb @ text_emb.t()
     logits_per_text = logits_per_image.t()

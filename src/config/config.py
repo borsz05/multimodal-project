@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 @dataclass
-class Paths: #Keeps all important project folders in one place.
-    # a projekt gyökere: src/..
+class Paths:  # Keeps all important project folders in one place.
+    # project root: src/..
     project_root: Path = Path(__file__).resolve().parents[2]
 
     @property
@@ -18,7 +18,7 @@ class Paths: #Keeps all important project folders in one place.
     def models_dir(self) -> Path:
         return self.results_dir / "models"
 
-    # --- Flickr30k-specifikus útvonalak ---
+    # --- Flickr30k-specific paths ---
     @property
     def flickr30k_dir(self) -> Path:
         return self.data_dir / "flickr30k"

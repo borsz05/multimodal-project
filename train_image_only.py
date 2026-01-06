@@ -1,6 +1,6 @@
 """
-Egyszerű kontrasztív tanítás ugyanazzal az image-caption párral,
-de a futás végén csak a kép-encoder súlyát mentjük ki.
+Simple contrastive training with the same image-caption pair,
+but at the end of the run we only save the image encoder weights.
 """
 
 import torch

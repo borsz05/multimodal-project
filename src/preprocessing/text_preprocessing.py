@@ -65,7 +65,7 @@ def get_text_transform(tokenizer: VocabTokenizer, max_len: int = 30): #Turns cap
 
 def get_bert_text_transform(tokenizer: BertTokenizerFast, max_len: int = 32):
     """
-    BERT tokenizálás:
+    BERT tokenization:
     caption -> (input_ids, attention_mask)
     - input_ids: LongTensor [L]
     - attention_mask: FloatTensor [L]

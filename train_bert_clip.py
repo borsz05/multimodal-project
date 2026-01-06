@@ -88,10 +88,10 @@ def main():
     train_loader = create_dataloader(train_ds, batch_size=64, shuffle=True)
     val_loader = create_dataloader(val_ds, batch_size=64, shuffle=False)
 
-    # --- Modell: BERT-es CLIP ---
+    # --- Model: BERT-based CLIP ---
     model = create_contrastive_model(
         image_backbone="efficientnet_b0",
-        vocab_size=None,          # BERT-nél nem használjuk
+        vocab_size=None,          # not used with BERT
         image_proj_dim=256,
         pretrained_backbone=True,
         padding_idx=0,

@@ -16,7 +16,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
 
-    # --- Modell betöltése ---
+    # --- Load model ---
     model_file = paths.models_dir / "flickr30k_bert_clip_best.pth"
     if not model_file.exists():
         raise FileNotFoundError(f"Model file not found: {model_file}")
@@ -36,7 +36,7 @@ def main():
     model.load_state_dict(checkpoint["model_state"])
     model.eval()
 
-    # --- Adatok: csak az image neveket kell összegyűjteni ---
+    # --- Data: only need to collect the image names ---
     ann_path = paths.flickr30k_annotations_dir / "annotations.csv"
     samples = load_flickr30k_annotations(ann_path)
     image_names = sorted({img_name for (img_name, _) in samples})

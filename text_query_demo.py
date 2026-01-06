@@ -12,7 +12,7 @@ from src.models import create_contrastive_model
 
 
 def load_model_and_index(device):
-    # Modell
+    # Model
     model_file = paths.models_dir / "flickr30k_bert_clip_best.pth"
     if not model_file.exists():
         raise FileNotFoundError(f"Model file not found: {model_file}")
@@ -58,7 +58,7 @@ def show_topk_images(image_names, scores, k=5):
         with Image.open(img_path) as img:
             ax.imshow(img.convert("RGB"))
         ax.axis("off")
-        ax.set_title(f"{name}\nscore={score:.3f}", fontsize=9)
+        ax.set_title(f"{name}\n{score * 100:.1f}%", fontsize=9)
 
     plt.tight_layout()
     plt.show()
@@ -69,40 +69,47 @@ def main():
     print("Using device:", device)
 
     model, text_transform, image_embs, image_names = load_model_and_index(device)
-    image_embs = image_embs.to(device)
+    image_embs = image_embs.to(device, dtype=torch.float32)
 
-    print("Szöveg → kép keresés. Üres sorral kilépsz.\n")
+    print("Text to image search. Submit an empty line to exit.\n")
 
     while True:
-        query = input("Adj meg egy szöveges leírást (ENTER-rel kilépés): ").strip()
+        query = input("Enter a text description (press ENTER to exit): ").strip()
         if not query:
             break
 
-        # Szöveg embedding
+        # Text embedding
         token_ids, attn_mask = text_transform(query)
         token_ids = token_ids.unsqueeze(0).to(device)     # [1, L]
         attn_mask = attn_mask.unsqueeze(0).to(device)     # [1, L]
 
         with torch.no_grad():
-            # kép embeddingjeink már indexben vannak, itt csak a text oldalt számoljuk
+            # The image embeddings are already indexed; we only compute the text side here
             txt_feat = model.text_encoder(token_ids, attn_mask)
             txt_emb = model.text_head(txt_feat)  # [1, D]
-            txt_emb = txt_emb.squeeze(0)         # [D]
+            txt_emb = txt_emb.squeeze(0).float()  # [D]
 
-        # Cosine similarity = dot product, mert L2-normalizáltak
+        # Cosine similarity = dot product because they are L2-normalized
         sims = torch.matmul(image_embs, txt_emb)  # [N]
+        logit_scale = model.logit_scale.exp()
+        temperature = 5.0
+        scaled_sims = sims * logit_scale * temperature
 
-        # Top-5 indexek
+        # Top-5 indices (based on raw similarity)
         k = 5
-        topk_vals, topk_idx = torch.topk(sims, k=k)
-        topk_vals = topk_vals.cpu().tolist()
+        topk_vals, topk_idx = torch.topk(scaled_sims, k=k)
+
+        # Softmax-normalized values only over the top-5 images
+        topk_probs = torch.softmax(topk_vals, dim=0)
+
+        topk_vals = topk_probs.cpu().tolist()
         topk_names = [image_names[i] for i in topk_idx.cpu().tolist()]
 
-        print("\nTop-5 találat:")
+        print("\nTop-5 results:")
         for rank, (name, score) in enumerate(zip(topk_names, topk_vals), start=1):
-            print(f"{rank}. {name} (score={score:.3f})")
+            print(f"{rank}. {name} ({score * 100:.1f}%)")
 
-        # Képek megjelenítése
+        # Display images
         show_topk_images(topk_names, topk_vals, k=k)
         print("\n---\n")
 
